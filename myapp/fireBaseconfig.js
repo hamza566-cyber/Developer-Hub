@@ -1,5 +1,6 @@
 import { initializeApp } from "@react-native-firebase/app";
 
+
 const fireBaseconfig ={
     apiKey:"AIzaSyCy2CU2Z8mTfUbUJjqz_f76Ne0epJXNV3A",
     projectId: "social-connect-app-cc975",
@@ -9,5 +10,6 @@ const fireBaseconfig ={
 }
 
 const app = initializeApp(fireBaseconfig);
+
 export default app;
 

@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ImageBackground, StyleSheet, Alert, TouchableOpacity, TextInput, Dimensions } from 'react-native';
+import { View, Text, ImageBackground, StyleSheet, Alert, TouchableOpacity, TextInput, Dimensions, FlatList } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
-import firestore from '@react-native-firebase/firestore';
 import auth from '@react-native-firebase/auth';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import firestore from '@react-native-firebase/firestore';
+import { onSnapshot, collection } from '@react-native-firebase/firestore';
+import { useCallback } from 'react';
+
 
 import { RootStackParamList } from '../App';
 
-// Get screen width and height
 const { width, height } = Dimensions.get('window');
 
 const Profile = ({ navigation }: NativeStackScreenProps<RootStackParamList, 'MainTabs'>) => {
@@ -16,6 +18,9 @@ const Profile = ({ navigation }: NativeStackScreenProps<RootStackParamList, 'Mai
     const [userName, setUserName] = useState('');
     const [bio, setBio] = useState('');
     const userId = auth().currentUser?.uid;
+    const [followersCount, setFollowersCount] = useState(0);
+    const [followingCount, setFollowingCount] = useState(0);
+    const [postCount, setPostCount] =useState(0);
 
     useEffect(() => {
         if (!userId) {
@@ -37,13 +42,16 @@ const Profile = ({ navigation }: NativeStackScreenProps<RootStackParamList, 'Mai
                     console.error('User document does not exist');
                 }
             } catch (err) {
-                const error = err as Error; // Explicitly cast 'err' to the Error type
-                console.error('Error fetching data:', error.message);
+                console.error('Error fetching data:', (err as Error).message);
             }
         };
 
         fetchUserData();
-    }, [userId]);
+        fetchFollowCount(); // ✅ Call the function here, NOT in the dependency array
+
+    }, [userId, fetchFollowCount]); // ✅ Pass the function reference, NOT fetchFollowCount()
+
+
 
     const handleImageUpload = async () => {
         if (!userId) {return Alert.alert('No user logged in');}
@@ -89,155 +97,131 @@ const Profile = ({ navigation }: NativeStackScreenProps<RootStackParamList, 'Mai
         try {
             await auth().signOut();
             Alert.alert('Logged out successfully');
+            navigation.navigate('Login');
         } catch (err) {
             const error = err as Error;
             Alert.alert('Error logging out:', error.message);
         }
     };
+    const fetchFollowCount = useCallback(async () => {
+        try {
+          if (!userId) {
+            console.error('No user ID found');
+            return;
+          }
 
-    return (
-        <View style={styles.container}>
-            {/* Profile Section */}
-            <View style={styles.imageContainer}>
-                <ImageBackground
-                    source={require('../images/backgroundImage.jpg')}
-                    style={styles.blackBackground}
+          const followersRef = firestore().collection('user').doc(userId).collection('followers');
+          const followingRef = firestore().collection('user').doc(userId).collection('following');
+
+          const postRef = firestore().collection('posts').where('userId', '==', userId);
+
+
+          const followersSnapshot = await followersRef.get();
+          const followingSnapshot = await followingRef.get();
+          const postSnapshot = await postRef.get();
+
+          setFollowersCount(followersSnapshot.size);
+          setFollowingCount(followingSnapshot.size);
+          setPostCount(postSnapshot.size);
+        } catch (error) {
+          console.error('Error fetching follow counts:', error);
+        }
+      }, [userId] );
+      
+      return (
+        <View style={styles.mainContainer}>
+            <View style={styles.profileHeader}>
+                <ImageBackground 
+                    source={profilePic ? { uri: profilePic } : require('../images/profile.png')} 
+                    style={styles.profilePic} 
+                    imageStyle={{ borderRadius: 60 }} 
                 />
+                <Text style={styles.nameText}>{userName || 'Your Name'}</Text>
+                <TextInput style={styles.bioText}>{bio || 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed et ullamcorper nisi.'}</TextInput>
             </View>
-
-            <TouchableOpacity onPress={handleImageUpload} style={styles.profilePicContainer}>
-                <ImageBackground
-                    source={profilePic ? { uri: profilePic } : require('../images/profile.png')}
-                    style={styles.profilePic}
-                    imageStyle={{ borderRadius: 60 }}
-                />
-                <Icon name="edit" size={30} color="#666" style={styles.editIcon} />
+    
+            <View style={styles.followContainer}>
+                <View style={styles.followBox}>
+                    <Text style={styles.followCount}>{postCount}</Text>
+                    <Text style={styles.followLabel}>Posts</Text>
+                </View>
+                <View style={styles.followBox}>
+                    <Text style={styles.followCount}>{followersCount}</Text>
+                    <Text style={styles.followLabel}>Followers</Text>
+                </View>
+                <View style={styles.followBox}>
+                    <Text style={styles.followCount}>{followingCount}</Text>
+                    <Text style={styles.followLabel}>Following</Text>
+                </View>
+            </View>
+    
+            <TouchableOpacity style={styles.followButton}>
+                <Text style={styles.followButtonText}>Follow</Text>
             </TouchableOpacity>
 
-            <Text style={styles.nameText}>{userName || 'Your Name'}</Text>
 
-            <TextInput
-                style={styles.bioInput}
-                value={bio}
-                onChangeText={setBio}
-                onBlur={handleUpdateBio}
-                placeholder="Set your bio..."
-                placeholderTextColor="grey"
-            />
-
-            {/* Menu Section */}
-            <View style={styles.menuContainer}>
-                {/* Home Button */}
-                <TouchableOpacity
-                    style={styles.menuItem}
-                    onPress={() => navigation.navigate('MainTabs', { screen: 'Dashboard' })}
-                >
-                    <Icon name="home" size={25} color="#666" style={styles.menuIcon} />
-                    <Text style={styles.menuText}>Home</Text>
-                    <View style={{ flex: 1 }} />
-                    <Icon name="keyboard-arrow-right" size={25} color="#666" />
-                </TouchableOpacity>
-
-                {/* Settings Button */}
-                <TouchableOpacity
-                    style={styles.menuItem}
-                    onPress={() => navigation.navigate('MainTabs', { screen: 'Settings' })}
-                >
-                    <Icon name="settings" size={25} color="#666" style={styles.menuIcon} />
-                    <Text style={styles.menuText}>Settings</Text>
-                    <View style={{ flex: 1 }} />
-                    <Icon name="keyboard-arrow-right" size={25} color="#666" />
-                </TouchableOpacity>
-
-                {/* About Button */}
-                <TouchableOpacity style={styles.menuItem} onPress={() => navigation.navigate('About')}>
-                    <Icon name="info" size={25} color="#666" style={styles.menuIcon} />
-                    <Text style={styles.menuText}>About</Text>
-                    <View style={{ flex: 1 }} />
-                    <Icon name="keyboard-arrow-right" size={25} color="#666" />
-                </TouchableOpacity>
-
-                {/* Logout Button */}
-                <TouchableOpacity
-                    style={[styles.menuItem, styles.logoutButton]}
-                    onPress={handleLogout}
-                >
-                    <Icon name="logout" size={25} color="#fff" style={styles.menuIcon} />
-                    <Text style={[styles.menuText, { color: '#fff' }]}>Logout</Text>
-                    <View style={{ flex: 1 }} />
-                    <Icon name="keyboard-arrow-right" size={25} color="#fff" />
-                </TouchableOpacity>
-            </View>
         </View>
     );
+    
 };
 
 const styles = StyleSheet.create({
-    container: {
+    mainContainer: {
         flex: 1,
+        backgroundColor: '#ffffff',
+        padding: 20,
+    },
+    profileHeader: {
         alignItems: 'center',
-        backgroundColor: '#f5f5f5',
-    },
-    imageContainer: {
-        width: '100%',
-        height: height * 0.3, // Responsive height
-        borderBottomLeftRadius: 50,
-        borderBottomRightRadius: 50,
-        overflow: 'hidden',
-    },
-    blackBackground: {
-        width: '100%',
-        height: '100%',
-    },
-    profilePicContainer: {
-        position: 'relative',
-        marginTop: -40, // Adjusted for better placement
-        alignItems: 'center',
+        marginBottom: 20,
     },
     profilePic: {
-        width: width * 0.2, // Responsive width
-        height: width * 0.2, // Same for height, keep circular shape
-    },
-    editIcon: {
-        position: 'absolute',
-        bottom: 0,
-        right: -5,
+        width: 120,
+        height: 120,
+        marginBottom: 10,
     },
     nameText: {
-        fontSize: 28,
-        marginTop: 10,
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#000',
+        marginBottom: 5,
+    },
+    bioText: {
+        fontSize: 14,
         color: '#666',
-    },
-    bioInput: {
-        marginTop: 10,
-        fontSize: 16,
-        padding: 8,
-        width: '80%', // Responsive width
         textAlign: 'center',
+        marginHorizontal: 10,
     },
-    menuContainer: {
-        marginTop: 30,
-        width: '80%', // Responsive width
-    },
-    menuItem: {
-        padding: 15,
-        borderRadius: 10,
-        backgroundColor: '#ffffff',
-        marginBottom: 10,
+    followContainer: {
         flexDirection: 'row',
+        justifyContent: 'space-around',
+        marginBottom: 20,
+    },
+    followBox: {
         alignItems: 'center',
     },
-    menuIcon: {
-        paddingRight: 10,
-    },
-    logoutButton: {
-        backgroundColor: '#D9534F',
-    },
-    menuText: {
+    followCount: {
         fontSize: 18,
-        fontWeight: '600',
+        fontWeight: 'bold',
         color: '#000',
     },
+    followLabel: {
+        fontSize: 14,
+        color: '#666',
+    },
+    followButton: {
+        backgroundColor: '#6A9E3B',
+        paddingVertical: 10,
+        paddingHorizontal: 30,
+        borderRadius: 5,
+        alignItems: 'center',
+    },
+    followButtonText: {
+        color: '#ffffff',
+        fontSize: 16,
+        fontWeight: 'bold',
+    },
+
 });
 
 export default Profile;

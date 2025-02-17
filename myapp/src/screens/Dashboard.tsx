@@ -1,14 +1,17 @@
-import { View, Text, Alert,ImageBackground, StyleSheet, SafeAreaView, TextInput, FlatList, Image, TouchableOpacity, ScrollView, Modal } from 'react-native';
+import { View, Text, Alert,ImageBackground, StyleSheet, SafeAreaView, FlatList, Image, TouchableOpacity, ScrollView } from 'react-native';
 import React, { useEffect, useState } from 'react';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../App';
-import { launchImageLibrary, ImageLibraryOptions } from 'react-native-image-picker';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import { addDoc, collection, getDocs, getFirestore, onSnapshot, serverTimestamp } from '@react-native-firebase/firestore';
+import {  collection, getDocs, getFirestore, onSnapshot, doc,updateDoc,getDoc, deleteDoc, setDoc } from '@react-native-firebase/firestore';
 import { getAuth } from '@react-native-firebase/auth';
-import LinearGradient from 'react-native-linear-gradient';
+
+import CommentModal from '../modals/CommentModal';
+import PostModal from '../modals/PostModal';
+
 import Animated, {useSharedValue, useAnimatedStyle, withSpring} from 'react-native-reanimated';
 import { widthPercentageToDP as wp } from 'react-native-responsive-screen';
+import ChatListScreen from './ChatListScreen';
 
 type DashboardProps = NativeStackScreenProps<RootStackParamList, 'Dashboard'>;
 
@@ -20,18 +23,20 @@ const Dashboard = ({ navigation }: DashboardProps) => {
 
   const scale = useSharedValue(1);
   const [currentPostId, setCurrentPostId] = useState<string | null>(null); // Tracks the selected post for comments
-  const [comments, setComments] = useState<{ id: string; text: string; userName: string; profilePic: string | null }[]>([]);
-  const [commentText, setCommentText] = useState<string>('');
-
-
-  const [modal1Visible, setModal1Visible] = useState(false);
-
-  const[modalVisible, setModalVisible] = useState(false);
-  const [profilePic, setProfilePic] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
-  const [postText, setPostText] = useState('');
-  const [image, setImage] = useState<string | null>(null);
+
+
+
+  const [modalVisible, setModalVisible] = useState(false);
+  const [commentModalVisible, setCommentModalVisible] = useState(false);
+
+  const [profilePic, setProfilePic] = useState<string | null>(null);
   const [posts, setPosts] = useState<{ id: string; userId:string, text: string; image: string | null, userName: string, profilePic: string | null,  likes?: string[],commentCount :string, timestamp: string }[]>([]);
+
+  const [followingStatus, setFollowingStatus] = useState<{[key: string]: boolean}>({});
+
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+
 
  const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -39,12 +44,12 @@ const Dashboard = ({ navigation }: DashboardProps) => {
   useEffect(() => {
     const fetchProfileData = async () => {
       const userId = auth.currentUser?.uid;
-  
+
       if (!userId) {
         console.log('User not logged in');
         return;
       }
-  
+
       try {
         const userDocRef = firestore.collection('user').doc(userId);
         const unsubscribe = onSnapshot(userDocRef, (doc) => {
@@ -53,105 +58,61 @@ const Dashboard = ({ navigation }: DashboardProps) => {
             const name = doc.data()?.name || null;
             console.log('Fetched Profile Pic URL:', profilePicUrl, 'and Name:', name);
             setProfilePic(profilePicUrl);
-            setUserName(name);
+            setUserName(doc.data()?.name);
           } else {
             console.log('Document does not exist');
           }
         });
-  
-        return unsubscribe; // Cleanup listener on unmount
+
+        return () => unsubscribe; // Cleanup listener on unmount
       } catch (error) {
         console.error('Error fetching profile data:', error);
       }
     };
-  
+
     fetchProfileData();
-  
+
     return () => {
       // Cleanup listener
       if (fetchProfileData) fetchProfileData();
     };
   }, [auth, firestore]);
 
-  // Image Picker Function
-  const imagePicker = () => {
-    const options: ImageLibraryOptions = {
-      mediaType: 'photo', // Ensure 'photo', 'video', or 'mixed'
-      quality: 1, // Between 0 (lowest quality) and 1 (highest quality)
-    };
 
-    launchImageLibrary(options, (response) => {
-      if (response.didCancel) {
-        console.log('User Cancelled Image Picker');
-      } else if (response.errorCode) {
-        console.log('ImagePicker Error:', response.errorMessage);
-      } else {
-        const uri = response.assets?.[0]?.uri;
-        if (uri) {
-          setImage(uri);
-        }
-      }
-    });
+  const fetchComments = (postId: string) => {
   };
 
-  // Post Submission
-  const addPost = async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      console.log('User is not logged in');
-      return;
-    }
-    if (!postText.trim() && !image) {
-      Alert.alert('Post cannot be empty');
-    }
-    try {
-      const newPost = {
-        text: postText.trim(),
-        image: image || null,
-        userId: user.uid,
-        timestamp: serverTimestamp(),
-        profilePic: profilePic || null,
-        userName: userName || null, // Include name in the post (userName)
-      };
-      const docRef = await addDoc(collection(firestore, 'posts'), newPost);
-      console.log('Post added with id ', docRef.id);
-      setPostText('');
-      setImage(null);
 
-      Alert.alert('Post Added Successfully');
-    } catch (error) {
-      console.log('Error occurred', error);
-      Alert.alert('Error', 'Failed to add the post');
-    }
-  };
   const toggleLike = async (postId: string) => {
     const userId = auth.currentUser?.uid;
     if (!userId) {
       Alert.alert('Error', 'User not logged in');
       return;
     }
-  
+
     try {
+      // Like animation (optional)
       scale.value = withSpring(1.5, {}, () => {
-        scale.value = withSpring(1); // Reset back to the original size
+        scale.value = withSpring(1);
       });
-      const postRef = firestore.collection('posts').doc(postId);
-      const postSnapshot = await postRef.get();
-  
+
+      const postRef = doc(firestore, 'posts', postId);
+      const postSnapshot = await getDoc(postRef);
+
       if (postSnapshot.exists) {
         const post = postSnapshot.data();
-        const likes = post?.likes || []; // Default to an empty array if no likes exist
-  
+        const likes = post?.likes || [];
+
         if (likes.includes(userId)) {
-          // User already liked the post, so remove the like
-          await postRef.update({
+          // Unlike: Remove user ID from likes array
+          await updateDoc(postRef, {
             likes: likes.filter((id: string) => id !== userId),
           });
           console.log('Removed like');
         } else {
-          // Add the like for this user
-          await postRef.update({
-            likes: [...likes, userId], // Add the user ID to the likes array
+          // Like: Add user ID to likes array
+          await updateDoc(postRef, {
+            likes: [...likes, userId],
           });
           console.log('Added like');
         }
@@ -163,53 +124,15 @@ const Dashboard = ({ navigation }: DashboardProps) => {
     }
   };
 
-  const fetchComments = (postId: string) => {
-    const commentsRef = collection(firestore, 'posts', postId, 'comments');
-    const unsubscribe = onSnapshot(commentsRef, (snapshot) => {
-      const fetchedComments = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        text: doc.data().text || '',  // Default value if no text
-        userName: doc.data().userName || '',  // Default value if no userName
-        profilePic: doc.data().profilePic || null,  // Default value if no profilePic
-        userId: doc.data().userId || '',
-      }));
-      setComments(fetchedComments);
-    });
-    return unsubscribe;
-  };
 
-  const addComment = async () => {
-    const user = auth.currentUser;
-    if (!user || !currentPostId) {
-      Alert.alert('Error', 'User not logged in or no post selected');
-      return;
-    }
-    if (!commentText.trim()) {
-      Alert.alert('Error', 'Comment cannot be empty');
-      return;
-    }
-  
-    try {
-      const commentData = {
-        text: commentText.trim(),
-        userId: user.uid,
-        userName: userName || 'Anonymous',
-        profilePic: profilePic || null,
-        timestamp: serverTimestamp(),
-      };
-      const commentsRef = collection(firestore, 'posts', currentPostId, 'comments');
-      await addDoc(commentsRef, commentData);
-      setCommentText(''); // Clear input
-      Alert.alert('Success', 'Comment added successfully');
-    } catch (error) {
-      console.error('Error adding comment:', error);
-      Alert.alert('Error', 'Failed to add comment');
-    }
-  };
+
   const handleNavigateToProfile = (userId: string) => {
     navigation.navigate('VisitorProfile', { userId });
 };
 
+const handleNavigateToChatListScreen = () => {
+  navigation.navigate('ChatListScreen');
+};
 
 useEffect(() => {
   const unsubscribe = onSnapshot(collection(firestore, 'posts'), async (snapshot) => {
@@ -248,6 +171,78 @@ useEffect(() => {
   return () => unsubscribe();
 }, [firestore]);
 
+const handleConsole = async ()=>{
+
+  setModalVisible(false);
+  setCommentModalVisible(false);
+  console.log('modalClosed');
+};
+
+const checkisfollowing = async ( targetuserId : string)=>{
+  const currentUser = auth.currentUser;
+
+  if(!currentUser){
+    Alert.alert('User Not Logged In');
+    return;
+  }
+  const followRef = doc(firestore, 'user', currentUser.uid, 'following', targetuserId);
+  const followDoc = await getDoc(followRef);
+  return followDoc.exists();
+};
+
+const toggleFollow = async(targetuserId: string) =>{
+  const currentUser = auth.currentUser;
+  if(!currentUser){
+    Alert.alert('User not logged in');
+    return;
+  }
+  const followRef = doc(firestore, 'user', currentUser.uid, 'following', targetuserId);
+  const follwerRef = doc(firestore, 'user', targetuserId, 'followers', currentUser.uid);
+  const isFollowing = followingStatus[targetuserId];
+
+  try{
+    if(isFollowing){
+      await deleteDoc(followRef);
+      await deleteDoc(follwerRef);
+      setFollowingStatus((prev)=> ({...prev,[targetuserId]:false}));
+    }
+    else{
+      await setDoc(followRef,{followedAt : new Date()});
+      await setDoc(follwerRef, {follwedAt : new Date()});
+      setFollowingStatus((prev) =>({...prev, [targetuserId]: true}));
+    }
+  }
+  catch (error) {
+    console.error('Error updating follow status:', error);
+  }
+};
+
+const deletePost = async (postId: string) =>{
+
+  try {
+
+    const PostRef = doc(firestore, 'posts', postId);
+    await deleteDoc(PostRef);
+
+    Alert.alert('Success', 'Post Deleted Successfuly');
+  } catch (error) {
+    console.error('Error deleting post', error);
+  }
+
+};
+  const confirmDeletePost = async(postId: string)=>{
+
+    Alert.alert(
+      'Delete Post',
+      'Are u sure u want to delete post?',
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {text :'Delete' , style:'destructive', onPress:()=>deletePost(postId) },
+      ]
+    );
+
+  };
+
 const formatDate = (date: Date): string => {
   return new Intl.DateTimeFormat('en-US', {
     dateStyle: 'medium',
@@ -262,11 +257,13 @@ const formatDate = (date: Date): string => {
         <Text style={styles.title}>Social Connect</Text>
         <View style={styles.iconContainer}>
           <Icon name="favorite-border" size={24} style={styles.headerIcon} />
+          <TouchableOpacity onPress={() => handleNavigateToChatListScreen()}>
           <Icon name="send" size={24} style={styles.headerIcon} />
+          </TouchableOpacity>
         </View>
       </View>
 
-    <View style={{height:8, backgroundColor:'#e5e5e5', marginTop:15}}></View>
+    <View style={{height:8, backgroundColor:'#e5e5e5', marginTop:15}} />
 
 
         <View style={styles.postInputContainer} >
@@ -276,54 +273,13 @@ const formatDate = (date: Date): string => {
             style={styles.avatar}
           />
           </View>
-          <TouchableOpacity onPress={() => setModal1Visible(true)} style={styles.newPost} >
+          <TouchableOpacity onPress={() => setModalVisible(true)} style={styles.newPost} >
         <Text style={{color:'#aaa',fontSize:16}}> What's in your mind</Text>
         </TouchableOpacity>
         </View>
 
 
-        {/* Modal for Creating Post */}
-        <Modal visible={modal1Visible} animationType="slide" onRequestClose={() => setModal1Visible(false)}>
-          <SafeAreaView style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Create Post</Text>
-            {/* Add form inputs for post */}
-
-          <View style={{flexDirection:'row'}}>
-              <View style={styles.profileSectionPost}>
-                  <ImageBackground
-                  source={profilePic ? { uri: profilePic } : require('../images/profile.png')}
-                  style={styles.avatar}
-                />
-          </View>
-              <Text style={styles.modaluserName}>{userName}</Text>
-              <Icon name='image' size={30} color={'#000'} style={styles.modalImageicon} onPress={imagePicker}/>
-          </View>
-
-            <TextInput
-              placeholder="Write Your Post Here..."
-              value={postText}
-              onChangeText={setPostText}
-              style={styles.modalInput}
-            />
-            {image && <Image source={{ uri: image }} style={styles.previewImage} />}
- 
-            <TouchableOpacity onPress={addPost} style={styles.PostButton}>
-            <LinearGradient
-                                                         colors={['#80C255', '#6A9E3B']}
-                                                         start={{ x: 0, y: 0 }}
-                                                         end={{ x: 1, y: 1 }}
-                                                         style={styles.gradientButtonBackground}
-                                                     >
-                                                         <Text style={styles.buttonText}>Post</Text>
-                                                     </LinearGradient>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setModal1Visible(false)} style={styles.closeButton}>
-              <Text style={styles.closeButtonText}>Close</Text>
-            </TouchableOpacity>
-          </SafeAreaView>
-        </Modal>
-      
-``````<View style={{height:6, backgroundColor:'#e5e5e5', marginTop:6}}></View>
+<View style={{height:6, backgroundColor:'#e5e5e5', marginTop:6}} />
 
       {/* Posts Feed */}
       <FlatList
@@ -332,111 +288,74 @@ const formatDate = (date: Date): string => {
   contentContainerStyle={styles.postsList}
   ItemSeparatorComponent={() => (
     <View style={{ height: 6, backgroundColor: '#e5e5e5' }} />
-  )}  renderItem={({ item }) => {
-    const userLiked = auth.currentUser?.uid 
+  )}
+  nestedScrollEnabled={true}
+  renderItem={({ item }) => {
+    const userLiked = auth.currentUser?.uid
       ? item.likes?.includes(auth.currentUser.uid)
       : false;
 
     return (
       <View style={styles.postCard}>
-        <View>
         <TouchableOpacity
-                style={styles.postHeader}
-                onPress={()=>handleNavigateToProfile(item.userId)}
-              >
+          style={styles.postHeader}
+          onPress={() => handleNavigateToProfile(item.userId)}
+        >
           <Image
             source={item.profilePic ? { uri: item.profilePic } : require('../images/profile.png')}
             style={styles.postHeaderProfilePic}
           />
-          
           <View>
             <Text style={styles.Headerusername}>{item.userName}</Text>
             <Text style={styles.SuggestedForYou}>Suggested For You</Text>
           </View>
           <View style={styles.actionContainer}>
-          <TouchableOpacity style={styles.followButton}>
-            <Text style={styles.followButtonText}>Follow</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.moreOptions}>
+            <TouchableOpacity style={styles.followButton} onPress={()=> toggleFollow(item.userId)}>
+            <Text style={styles.followButtonText}>{followingStatus[item.userId] ? 'Following' : 'Follow'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.moreOptions}
+              onPress={() => setSelectedPostId(selectedPostId === item.id ? null : item.id)}
+            >
             <Icon name="more-vert" size={20} color="#000" />
-          </TouchableOpacity>
-        </View>
-          </TouchableOpacity>
-
-        </View>
-        
-
-
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+        {selectedPostId === item.id && (
+            <View style={styles.optionsMenu}>
+              <TouchableOpacity onPress={() => confirmDeletePost(item.id)} style={styles.deleteButton}>
+                <Icon name="delete" size={24} color="red" />
+                <Text style={styles.deleteText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
         {item.image && <Image source={{ uri: item.image }} style={styles.postImage} />}
 
         <View style={styles.iconsContainer}>
           <TouchableOpacity onPress={() => toggleLike(item.id)}>
-          <Animated.View style={animatedStyle}>
-        <Icon
-          name={userLiked ? 'favorite' : 'favorite-border'}
-          size={24}
-          color={userLiked ? 'red' : 'black'}
-          style={styles.LoveIcon}
-        />
-        </Animated.View>
-
-     
+            <Animated.View style={animatedStyle}>
+              <Icon
+                name={userLiked ? 'favorite' : 'favorite-border'}
+                size={24}
+                color={userLiked ? 'red' : 'black'}
+                style={styles.LoveIcon}
+              />
+            </Animated.View>
           </TouchableOpacity>
           <Text>{item.likes?.length || 0} Likes</Text>
 
           <TouchableOpacity
-              onPress={() => {
-                setCurrentPostId(item.id); // Set current post ID
-                setModalVisible(true); // Open comment modal
-                fetchComments(item.id); // Fetch comments for this post
-              }}
-          >
+           onPress={() =>{
+            setCommentModalVisible(true);
+            setCurrentPostId(item.id);
+            fetchComments(item.id);
+           }}
+           >
             <Icon name="chat-bubble-outline" size={24} style={styles.CommentIcon} />
-            </TouchableOpacity>;
-            <Modal visible={modalVisible} animationType="slide" onRequestClose={() => setModalVisible(false)}>
-  <SafeAreaView style={styles.modalContainer}>
-    <Text style={styles.modalTitle}>Comments</Text>
+          </TouchableOpacity>
 
-    {/* Comments List */}
-    <FlatList
-      data={comments}
-      keyExtractor={(item) => item.id}
-      renderItem={({ item }) => (
-        <View style={styles.commentCard}>
-          <Image
-            source={item.profilePic ? { uri: item.profilePic } : require('../images/profile.png')}
-            style={styles.commentProfilePic}
-          />
-          <View>
-            <Text style={styles.commentUserName}>{item.userName}</Text>
-            <Text style={styles.commentText}>{item.text}</Text>
-          </View>
-        </View>
-      )}
-    />
-
-    {/* Add Comment Section */}
-    <View style={styles.commentInputContainer}>
-      <TextInput
-        placeholder="Write a comment..."
-        value={commentText}
-        onChangeText={setCommentText}
-        style={styles.commentInput}
-      />
-      <TouchableOpacity onPress={addComment} style={styles.commentButton}>
-        <Text style={styles.commentButtonText}>Post</Text>
-      </TouchableOpacity>
-    </View>
-
-    {/* Close Modal */}
-    <TouchableOpacity onPress={() => setModalVisible(false)} style={styles.closeButton}>
-      <Text style={styles.closeButtonText}>Close</Text>
-    </TouchableOpacity>
-  </SafeAreaView>
-</Modal>;
-
-        <Text>{item.commentCount}</Text>
+          <Text>{item.commentCount}</Text>
 
           <Icon name="send" size={23} style={styles.sendIcon} />
         </View>
@@ -454,9 +373,23 @@ const formatDate = (date: Date): string => {
 />
 
       </ScrollView>
+
+
+              <PostModal
+                  visible={modalVisible}
+                  onClose={handleConsole}
+                  userName={userName}
+                  profilePic={profilePic}
+                  setVisible={setModalVisible}
+              />
+              <CommentModal
+               visible={commentModalVisible}
+               onClose={handleConsole}
+               setVisible={setCommentModalVisible}
+               postId={currentPostId} />
     </SafeAreaView>
   );
-}; 
+};
   const styles = StyleSheet.create({
     mainContainer: {
       flex: 1,
@@ -473,7 +406,8 @@ const formatDate = (date: Date): string => {
     },
     title: {
       fontSize: 28,
-      fontFamily: 'DancingScript-Regular',
+
+      fontFamily: 'DancingScript-Bold',
       color:'#0A1E3D',
     },
     iconContainer: {
@@ -495,7 +429,7 @@ const formatDate = (date: Date): string => {
       width: 50, // Adjust size as needed
       height: 50,
       borderRadius: 25,
-      overflow: 'hidden', 
+      overflow: 'hidden',
       justifyContent: 'center',
       alignItems: 'center',
       borderWidth: 1,
@@ -504,12 +438,12 @@ const formatDate = (date: Date): string => {
     profileSectionPost:{      width: 50, // Adjust size as needed
       height: 50,
       borderRadius: 25,
-      overflow: 'hidden', 
+      overflow: 'hidden',
       justifyContent: 'center',
       alignItems: 'center',
       borderWidth: 1,
       borderColor: '#000',
-    marginTop:20,},
+    marginTop:20},
     avatar: {
       width: '100%',
       height: '100%',
@@ -521,7 +455,7 @@ const formatDate = (date: Date): string => {
     borderRadius: 10,
     padding: 10,
     backgroundColor: '#f9f9f9',
-    paddingRight:90, 
+    paddingRight:90,
     },
     buttonContainer: {
       flexDirection: 'row',
@@ -649,6 +583,7 @@ const formatDate = (date: Date): string => {
     modalContainer: {
       flex: 1,
       backgroundColor: 'white',
+      justifyContent: 'flex-start',
       padding: 16,
     },
     modalTitle: {
@@ -751,12 +686,12 @@ const formatDate = (date: Date): string => {
     modaluserName:{
       marginTop:30,
       marginLeft:10,
-      fontWeight:'600'
+      fontWeight:'600',
     },
     modalImageicon:{
       marginTop:30,
-      marginLeft:190,
-      
+      marginLeft:100,
+
     },
     gradientButtonBackground: {
       borderRadius: 15,
@@ -772,6 +707,32 @@ const formatDate = (date: Date): string => {
     textAlign: 'center',
 },
 
+postButton:{},
+
+   optionsMenu: {
+    position: 'absolute',
+    right: 10,
+    top: 25,
+    backgroundColor: 'white',
+    borderRadius: 5,
+    padding: 5,
+    elevation: 5, // for shadow effect on Android
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  deleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+  },
+  deleteText: {
+    marginLeft: 5,
+    color: 'red',
+    fontSize: 14,
+  },
+
   });
-  
-  export default Dashboard; 
+
+  export default Dashboard;

@@ -18,17 +18,18 @@ const MainTabs = () => {
                 tabBarShowLabel: true, // Show labels under the icons
                 tabBarStyle: {
                     position: "absolute",
-                    bottom: 10,
+                    bottom: 0,
                     right: 10,
                     left: 10,
-                    borderRadius: 16,
+                    borderRadius: 0,
                     backgroundColor: '#f9f9f9',
                     height: 70,
                     justifyContent: 'center',
+                    zIndex: 10,
                     ...styles.shadow,
                     paddingBottom: 5,
-                    alignItems: 'center', // Center the items horizontally
-                    paddingTop: 5, // Ensure there’s enough space for centering vertically
+                    alignItems: 'center',
+                    paddingTop: 5,
                 },
             }}
         >

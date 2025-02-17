@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, ImageBackground, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, ImageBackground, StyleSheet, TouchableOpacity, FlatList, Alert } from 'react-native';
 import firestore from '@react-native-firebase/firestore';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../App';
@@ -28,6 +28,11 @@ const VisitorProfile = ({ route }: NativeStackScreenProps<RootStackParamList, 'V
         profilePic: '',
         bio: '',
     });
+
+    const [followerCount, setFollowerCount] = useState(0);
+    const[followingCount, setFollowingCount] = useState(0);
+    const [postCount, setPostCount] =useState(0);
+
     const [posts, setPosts] = useState<Post[]>([]);
     const { userId } = route.params;
 
@@ -50,7 +55,8 @@ const VisitorProfile = ({ route }: NativeStackScreenProps<RootStackParamList, 'V
             }
         };
         fetchUserData();
-    }, [userId]);
+        fetchFollowCount();
+    }, [userId, fetchFollowCount]);
 
     useEffect(() => {
         const fetchPosts = async () => {
@@ -84,6 +90,7 @@ const VisitorProfile = ({ route }: NativeStackScreenProps<RootStackParamList, 'V
                 }));
 
                 setPosts(postsData);
+                setPostCount(postsData.length);
             } catch (error) {
                 console.error('Error fetching posts:', error);
             }
@@ -93,6 +100,34 @@ const VisitorProfile = ({ route }: NativeStackScreenProps<RootStackParamList, 'V
             fetchPosts();
         }
     }, [userData.name, userId]);
+
+
+    const fetchFollowCount = useCallback ( async ()=>{
+
+        try {
+            if(!userId){
+                Alert.alert('No user logged in');
+                return;
+            }
+
+            const followerCountRef = firestore().collection('user').doc(userId).collection('followers');
+            const followingCountRef = firestore().collection('user').doc(userId).collection('following');
+            
+
+            const followCountSnapShot = await followerCountRef.get();
+            const folllowingCountSnapShot = await followingCountRef.get();
+            
+            
+
+            setFollowerCount(followCountSnapShot.size);
+            setFollowingCount(folllowingCountSnapShot.size);
+            
+        } catch (error) {
+            console.error('Error fetching follow counts:', error);
+
+        }
+
+    }, [userId]);
 
     return (
         <View style={styles.container}>
@@ -113,6 +148,13 @@ const VisitorProfile = ({ route }: NativeStackScreenProps<RootStackParamList, 'V
 
             <Text style={styles.nameText}>{userData.name || 'User Name'}</Text>
             <Text style={styles.bioText}>{userData.bio || 'This user has no bio yet.'}</Text>
+            <View style={styles.followContainer}>
+                <View style={styles.followBox}><Text style={styles.followCount}>{postCount}</Text><Text style={styles.followLabel}>Posts</Text></View>
+                <View style={styles.followBox}><Text style={styles.followCount}>{followerCount}</Text><Text style={styles.followLabel}>Followers</Text></View>
+                <View style={styles.followBox}><Text style={styles.followCount}>{followingCount}</Text><Text style={styles.followLabel}>Following</Text></View>
+            </View>
+        
+
 
             {posts.length > 0 && (
                 <View style={styles.recentPostsContainer}>
@@ -229,6 +271,24 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: '600',
     },
+    followContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        marginTop: 10,
+      },
+      followBox: {
+        alignItems: 'center',
+        marginHorizontal: 20,
+      },
+      followCount: {
+        fontSize: 22,
+        fontWeight: 'bold',
+        color: '#333',
+      },
+      followLabel: {
+        fontSize: 14,
+        color: '#666',
+      },
 });
 
 export default VisitorProfile;
